@@ -47,6 +47,13 @@ const (
 
 	workStateSleeping  byte = 0
 	workStateMeasuring byte = 1
+
+	stdHeader = 0xAA
+	stdTail   = 0xAB
+)
+
+var (
+	ErrMalformedRead = errors.New("malformed read")
 )
 
 // response is what we get on the wire from the sensor. Its meaning
@@ -171,6 +178,10 @@ func (resp *response) IsCorrect() error {
 		checkSum += resp.Data[i]
 	}
 
+	if resp.Header != stdHeader || resp.Tail != stdTail {
+		return fmt.Errorf("%w: %#v", ErrMalformedRead, resp)
+	}
+
 	if checkSum != resp.CheckSum {
 		return fmt.Errorf("bad checksum: %#v", resp)
 	}
@@ -206,9 +217,11 @@ func (sensor *Sensor) send(cmd command, mod mode, data byte) error {
 // receive reads one response from the wire.
 func (sensor *Sensor) receive() (*response, error) {
 	data := new(response)
+
 	if err := binary.Read(sensor.rwc, binary.LittleEndian, data); err != nil {
 		return nil, err
 	}
+
 	if err := data.IsCorrect(); err != nil {
 		return nil, err
 	}
@@ -320,8 +333,8 @@ func (sensor *Sensor) Cycle() (uint8, error) {
 // minutes, accepting values from 1 to 30. If you pass it 0 it will
 // disable cycle work, and the sensor will just stream data.
 func (sensor *Sensor) SetCycle(value uint8) error {
-	if value < 0 || value > 30 {
-		return fmt.Errorf("duty cycle: bad value %v. Should be between 0 and 30.", value)
+	if value > 30 {
+		return fmt.Errorf("duty cycle: bad value %v. Should be between 0 and 30", value)
 	}
 	if err := sensor.send(commandCycle, modeSet, value); err != nil {
 		return err
